@@ -1,0 +1,262 @@
+
+#include <SPI.h>
+#include <MFRC522.h>
+
+
+
+
+
+//////////////////////////////////////////////////////////////////// set pin numbers
+const int buttonPin = 35; // the number of the pushbutton pin
+const int ledPin = 25; // the number of the LED pin
+#define RST_PIN         22         // Configurable, see typical pin layout above
+#define SS_PIN          21         // Configurable, see typical pin layout above
+// variable for storing the pushbutton status
+int buttonState = 0;
+
+
+//////////////////////////////////////////////////////////////////////////servo PRESETUP
+int pos = 0;    // variable to store the servo position
+bool lock_open = 0; // variable to hold lock state, true is open false is closed
+
+int open_pos = 60; //variable for position the servo is in when lock is OPEN
+int closed_pos = 130; //variable for position the servo is in when lock is OPEN
+
+
+#include <ESP32Servo.h>
+#define SERVO_PIN 13 // ESP32 pin GIOP26 connected to servo motor
+Servo myservo;
+
+//////////////////////////////////////////////////////////////////// RFID PRESETUP
+MFRC522 mfrc522(SS_PIN, RST_PIN);  // Create MFRC522 instance
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////// SETUP //////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
+void setup() {
+
+  /////////////////////////////////////////////// SERIAL SETUP
+
+  Serial.begin(115200);
+
+
+  //////////////////////////////////////////////// SERVO SETUP
+  
+  // Allow allocation of all timers
+  ESP32PWM::allocateTimer(0);
+  ESP32PWM::allocateTimer(1);
+  ESP32PWM::allocateTimer(2);
+  ESP32PWM::allocateTimer(3);
+  myservo.setPeriodHertz(50);    // standard 50 hz servo
+  myservo.attach(SERVO_PIN, 1000, 2500); // attaches the servo on pin 13 to the servo object
+  // using default min/max of 500us and 2500us for SG90 servo
+  // different servos may require different min/max settings
+  // for an accurate 0 to 180 sweep
+
+  // WHEN SCRIPT STARTS SET POS TO 0 (OPEN) INCASE LOCK OUT WE CAN CUT POWER AND RESTORE TO GAIN ACCESS 
+ for (int i = 0; i <= 0; i++) {
+       for (pos = closed_pos; pos >= open_pos; pos -= 1) { // goes from 180 degrees to 0 degrees OPENS LOCK
+   myservo.write(pos);    // tell servo to go to position in variable 'pos'
+    delay(15);             // waits 15ms for the servo to reach the position
+  }
+
+ }
+
+  lock_open = true;
+  
+
+  //////////////////////////////////////////////// BUTTON SETUP
+
+  // initialize the pushbutton pin as an input
+  pinMode(buttonPin, INPUT_PULLUP);
+
+  //////////////////////////////////////////////// BUTTON SETUP
+  // initialize the LED pin as an output
+  pinMode(ledPin, OUTPUT);
+
+  //////////////////////////////////////////////// RFID SETUP
+  SPI.begin();      // Init SPI bus
+  mfrc522.PCD_Init();   // Init MFRC522
+  delay(4);       // Optional delay. Some board do need more time after init to be ready, see Readme
+  mfrc522.PCD_DumpVersionToSerial();  // Show details of PCD - MFRC522 Card Reader details
+    
+ 
+}
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////// LOOP //////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+
+void loop() {
+
+
+/////////////////////////////////////////////////////////////////
+////////// CHECK IF LOCKED OR UNLOCKED //////////////////////////
+
+  
+/// lock_open = true (LOCK IS OPEN 
+// lock_open = false (LOCK IS CLOSED)
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////
+/////////////////////////// LED STUFF ////////////////////////////////////////////
+
+  if (lock_open) {
+    
+     // turn LED on
+    digitalWrite(ledPin, LOW);
+    
+    }
+
+    else if (!lock_open) {
+    
+    
+    digitalWrite(ledPin, HIGH);
+   
+    
+    }
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////
+/////////////////////////// BUTTON STUFF ////////////////////////////////////////////
+
+// read the state of the pushbutton value
+buttonState = digitalRead(buttonPin);
+
+// check if the pushbutton is pressed.
+// if it is, the buttonState is HIGH
+
+if (buttonState == HIGH) {
+
+ if (lock_open){
+  Serial.println("BUTTON PRESSED ,,, closing door!!!");
+ // turn LED on
+    digitalWrite(ledPin, HIGH);
+    
+
+     for (pos = open_pos; pos <= closed_pos; pos += 1) { // goes from 90 degrees to 180 degrees CLOSES LOCK
+    // in steps of 1 degree
+    myservo.write(pos);    // tell servo to go to position in variable 'pos'
+    delay(15);             // waits 15ms for the servo to reach the position
+  }
+  
+
+  myservo.detach();//doing this because servo vibrates and makes noise when it gets  to high position because of low torque / heavy lock 
+delay(2000);
+
+  //attaching servo because low torque on sg90 servo means it vibrates and makes noise whilst trying to hold latch up so have to detach it when it locks door
+
+ myservo.attach(SERVO_PIN, 1000, 2500); // attaches the servo on pin 13 to the servo object
+  lock_open = false;
+}
+        
+    
+ else if (!lock_open) { //door CLOSED
+
+     for (pos = closed_pos; pos >= open_pos; pos -= 1) { // goes from 180 degrees to 90 degrees OPENS LOCK
+   myservo.write(pos);    // tell servo to go to position in variable 'pos'
+    delay(15);             // waits 15ms for the servo to reach the position
+  }
+    myservo.detach();//doing this because servo vibrates and makes noise when it gets  to high position because of low torque / heavy lock 
+  delay(2000);
+
+  //attaching servo because low torque on sg90 servo means it vibrates and makes noise whilst trying to hold latch up so have to detach it when it locks door
+
+ myservo.attach(SERVO_PIN, 1000, 2500); // attaches the servo on pin 13 to the servo object
+   lock_open = true;   
+  }  
+
+   
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////
+/////////////////////////// RFID STUFF ////////////////////////////////////////////
+
+
+  // Look for new cards
+  if ( ! mfrc522.PICC_IsNewCardPresent()) 
+  {
+    return;
+  }
+  // Select one of the cards
+  if ( ! mfrc522.PICC_ReadCardSerial()) 
+  {
+    return;
+  }
+  //Show UID on serial monitor
+  Serial.print("UID tag :");
+  String content= "";
+  byte letter;
+  for (byte i = 0; i < mfrc522.uid.size; i++) 
+  {
+     Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
+     Serial.print(mfrc522.uid.uidByte[i], HEX);
+     content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " "));
+     content.concat(String(mfrc522.uid.uidByte[i], HEX));
+  }
+  Serial.println();
+  Serial.print("Message : ");
+  content.toUpperCase();
+  if (content.substring(1) == "F2 55 35 19" || content.substring(1) == "43 6E G3 2F") //change here the UID of the card/cards that you want to give access
+  {
+    Serial.println("Authorized access");
+    Serial.println();
+    
+ if (lock_open){
+  Serial.println("BUTTON PRESSED ,,, closing door!!!");
+ // turn LED on
+    digitalWrite(ledPin, HIGH);
+    
+
+     for (pos = open_pos; pos <= closed_pos; pos += 1) { // goes from 90 degrees to 180 degrees CLOSES LOCK
+    // in steps of 1 degree
+    myservo.write(pos);    // tell servo to go to position in variable 'pos'
+    delay(15);             // waits 15ms for the servo to reach the position
+  }
+  
+  lock_open = false;
+  myservo.detach();//doing this because servo vibrates and makes noise when it gets  to high position because of low torque / heavy lock 
+delay(2000);
+
+  //attaching servo because low torque on sg90 servo means it vibrates and makes noise whilst trying to hold latch up so have to detach it when it locks door
+
+ myservo.attach(SERVO_PIN, 1000, 2500); // attaches the servo on pin 13 to the servo object
+
+}
+        
+    
+ else if (!lock_open) { //door CLOSED
+
+     for (pos = closed_pos; pos >= open_pos; pos -= 1) { // goes from 180 degrees to 90 degrees OPENS LOCK
+   myservo.write(pos);    // tell servo to go to position in variable 'pos'
+    delay(15);             // waits 15ms for the servo to reach the position
+  }
+    myservo.detach();//doing this because servo vibrates and makes noise when it gets  to high position because of low torque / heavy lock 
+  delay(2000);
+
+  //attaching servo because low torque on sg90 servo means it vibrates and makes noise whilst trying to hold latch up so have to detach it when it locks door
+
+ myservo.attach(SERVO_PIN, 1000, 2500); // attaches the servo on pin 13 to the servo object
+   lock_open = true;   
+  }  
+}
+  
+ 
+ else   {
+    Serial.println(" Access denied");
+    delay(3000);
+  }
+}
